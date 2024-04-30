@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List
-from solver import fit_panels_in_rectangular_roof
+from placement_handler import PlacementHandler
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
@@ -14,34 +14,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class BigRectangle(BaseModel):
+class Roof(BaseModel):
     width: int
     height: int
 
-class SmallRectangle(BaseModel):
+class SolarPanel(BaseModel):
     width: int
     height: int
 
 class PanelsPlacementRequest(BaseModel):
-    big_rectangle: BigRectangle = Field(..., example={"width": 100, "height": 200})
-    small_rectangle: SmallRectangle = Field(..., example={"width": 100, "height": 200})
+    type: str =  Field(..., example="rectangular")
+    roof: Roof = Field(..., example={"width": 100, "height": 200})
+    solar_panel: SolarPanel = Field(..., example={"width": 100, "height": 200})
 
 class PanelsPlacementResponse(BaseModel):
-    total_small_rectangles: int
+    total_panels: int
     arrangement: List[dict]
 
 @app.post("/panels-placement", response_model=PanelsPlacementResponse)
 async def panels_placement_api(request: PanelsPlacementRequest):
-    big_rectangle_width = request.big_rectangle.width
-    big_rectangle_height = request.big_rectangle.height
-    small_rectangle_width = request.small_rectangle.width
-    small_rectangle_height = request.small_rectangle.height
-
-    total_small_rectangles, arrangement = fit_panels_in_rectangular_roof(
-        big_rectangle_width, big_rectangle_height, small_rectangle_width, small_rectangle_height 
-    )
-    
-    if total_small_rectangles is None or arrangement is None:
+    roof = {
+                "width": request.roof.width,
+                "height": request.roof.height
+            }
+    solar_panel = {
+                "width": request.solar_panel.width,
+                "height": request.solar_panel.height
+            }
+    type = request.type
+    handler = PlacementHandler(type)
+    arrangement = handler.place_solar_panels(roof, solar_panel)
+    if arrangement is None:
         raise HTTPException(status_code=500, detail="Failed to solve the panels placement problem")
-
-    return PanelsPlacementResponse(total_small_rectangles=total_small_rectangles, arrangement=arrangement)
+    return PanelsPlacementResponse(total_panels=len(arrangement), arrangement=arrangement)
