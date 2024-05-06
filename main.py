@@ -1,49 +1,122 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from typing import List
-from placement_handler import PlacementHandler
-from fastapi.middleware.cors import CORSMiddleware
+HEIGHT = "height"
+WIDTH = "width"
 
-app = FastAPI()
+class RectangularStrategy:
+    def __init__(self) -> None:
+        self.memory = {}
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
-)
+    def solar_panel_fits_in_roof(self, roof, solar_panel):
+        fits_normal = solar_panel[WIDTH] <= roof[WIDTH] and solar_panel[HEIGHT] <= roof[HEIGHT]
+        fits_flipped = solar_panel[HEIGHT] <= roof[WIDTH] and solar_panel[WIDTH] <= roof[HEIGHT]
+        return fits_normal or fits_flipped
+    
+    def unidimentional_fit(self, roof, solar_panel):
+        return solar_panel[WIDTH] <= roof[WIDTH] and solar_panel[HEIGHT] <= roof[HEIGHT]
+        
+    # NOTE: entrypoint for strategy
+    def find_optimal_arrangement(self, roof, solar_panel):
+        if (roof[WIDTH], roof[HEIGHT]) in self.memory:
+            return self.memory[(roof[WIDTH], roof[HEIGHT])]
+        if not self.solar_panel_fits_in_roof(roof, solar_panel):
+            self.memory[(roof[WIDTH], roof[HEIGHT])] = []    
+            return []
 
-class Roof(BaseModel):
-    width: int
-    height: int
+        else:
+            best_arrangement = []
+            placements = []
+            if self.unidimentional_fit(roof, { WIDTH: solar_panel[WIDTH], HEIGHT: solar_panel[HEIGHT] }):
+                placements.append((solar_panel[WIDTH], solar_panel[HEIGHT]))
+            if self.unidimentional_fit(roof, { WIDTH: solar_panel[HEIGHT], HEIGHT: solar_panel[WIDTH] }):
+                placements.append((solar_panel[HEIGHT], solar_panel[WIDTH]))
+            for x, y in placements:
+                # rectangulo lado largo
+                roof_1 = { WIDTH: roof[WIDTH] - x, HEIGHT: roof[HEIGHT] }
+                arrangement_1 = self.find_optimal_arrangement(roof_1, solar_panel)
+                # rectangulo base corto
+                # NOTE: aca no deberia haber un max, si no cabe en este sentido no deberia ser opcion
+                roof_2 = { WIDTH: x, HEIGHT: roof[HEIGHT] - y }
+                arrangement_2 = self.find_optimal_arrangement(roof_2, solar_panel)
+                # rectangulo lado corto
+                roof_3 = { WIDTH: roof[WIDTH] - x, HEIGHT: y }
+                arrangement_3 = self.find_optimal_arrangement(roof_3, solar_panel)
+                # rectangulo base largo
+                roof_4 = { WIDTH: roof[WIDTH], HEIGHT: roof[HEIGHT] - y}
+                arrangement_4 = self.find_optimal_arrangement(roof_4, solar_panel)
 
-class SolarPanel(BaseModel):
-    width: int
-    height: int
+                if len(arrangement_1) + len(arrangement_2) > len(arrangement_3) + len(arrangement_4):
+                    current_arrangement = self.translate_rectangles(arrangement_1, (x, 0)) + self.translate_rectangles(arrangement_2, (0, y))
+                else:
+                    current_arrangement = self.translate_rectangles(arrangement_3, (x, 0)) + self.translate_rectangles(arrangement_4, (0, y))
+                current_arrangement += [{"x": 0, "y": 0, "width": x, "height": y}]
+                if len(current_arrangement) > len(best_arrangement):
+                    best_arrangement = current_arrangement
+            # no entiendo pq el +1 y el cero, no deberian darte ambas 0 en ese caso y seria redundante?
+            # si ya revisamos arriba que cabia, entonces asumimos que lo vamos a poner no+ no?
+            self.memory[(roof[WIDTH], roof[HEIGHT])] = best_arrangement
+            
+            return best_arrangement
+        
+    def translate_rectangles(self, rectangles, translation):
+        """
+        Translates coordinates based on a given rectangle's position.
 
-class PanelsPlacementRequest(BaseModel):
-    type: str =  Field(..., example="rectangular")
-    roof: Roof = Field(..., example={"width": 100, "height": 200})
-    solar_panel: SolarPanel = Field(..., example={"width": 100, "height": 200})
+        Parameters:
+        - rectangle: A tuple (rect_x, rect_y) representing the position of the rectangle.
+        - coordinates: A list of dictionaries, each containing keys "x" and "y" representing coordinates.
 
-class PanelsPlacementResponse(BaseModel):
-    total_panels: int
-    arrangement: List[dict]
+        Returns:
+        A list of dictionaries with translated coordinates.
+        """
+        rect_x, rect_y = translation
+        translated_rectangles = []
+        for rect in rectangles:
+            x = rect["x"] + rect_x
+            y = rect["y"] + rect_y
+            translated_rectangles.append({"x": x, "y": y, "width": rect["width"], "height": rect["height"]})
+        return translated_rectangles
+    
+    def get_valid_dimension(self, prompt):
+        dimension_str = ''
+        while dimension_str != "x":
+            dimension_str = input(prompt)
+            if dimension_str.isdigit():
+                dimension = float(dimension_str)
+                if dimension > 0:
+                    return dimension
+                else:
+                    print("Please enter a positive number.")
+            else:
+                print("Invalid input. Please enter a number.")
 
-@app.post("/panels-placement", response_model=PanelsPlacementResponse)
-async def panels_placement_api(request: PanelsPlacementRequest):
-    roof = {
-                "width": request.roof.width,
-                "height": request.roof.height
-            }
-    solar_panel = {
-                "width": request.solar_panel.width,
-                "height": request.solar_panel.height
-            }
-    type = request.type
-    handler = PlacementHandler(type)
-    arrangement = handler.place_solar_panels(roof, solar_panel)
-    if arrangement is None:
-        raise HTTPException(status_code=500, detail="Failed to solve the panels placement problem")
-    return PanelsPlacementResponse(total_panels=len(arrangement), arrangement=arrangement)
+
+if __name__ == "__main__":
+    rectangular_strategy = RectangularStrategy()
+    print("Enter dimensions for the Roof:")
+    width_roof = rectangular_strategy.get_valid_dimension("Width: ")
+    height_roof = rectangular_strategy.get_valid_dimension("Height: ")
+
+    print("\nEnter dimensions for the solar panel:")
+    width_solar_panlel = rectangular_strategy.get_valid_dimension("Width: ")
+    height_solar_panel = rectangular_strategy.get_valid_dimension("Height: ")
+
+    answer = rectangular_strategy.find_optimal_arrangement(
+        {
+            WIDTH: width_roof,
+            HEIGHT: height_roof
+        },
+        {
+            WIDTH: width_solar_panlel,
+            HEIGHT: height_solar_panel
+        }
+    )
+
+    print("cantidad total de paneles solares: ", len(answer))
+    print("orientación: ")
+    for rect in answer:
+        print(rect)
+
+
+
+
+
+

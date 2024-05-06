@@ -25,15 +25,9 @@ Sigue estos pasos para ejecutar la API en tu entorno local:
     cd solar-panels-api
     ```
 
-3. Instala las dependencias utilizando pip:
-
-    ```bash
-    pip install -r requirements.txt
-    ```
-
 ### Ejecución
 
 Una vez que hayas instalado las dependencias, puedes ejecutar la API utilizando el siguiente comando:
 
 ```bash
-uvicorn main:app --reload
+python main.py
